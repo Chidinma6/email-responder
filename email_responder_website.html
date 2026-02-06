@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Email Responder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .container {
+            max-width: 900px;
+        }
+
+        .email-card {
+            background-color: #fff;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+        }
+
+        textarea {
+            resize: none;
+        }
+
+        .btn {
+            background-color: #4f46e5;
+            color: #fff;
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #4338ca;
+        }
+
+        .loading-spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 1.5rem;
+            height: 1.5rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body class="p-4 md:p-8 flex items-center justify-center min-h-screen">
+
+    <div class="container mx-auto">
+        <div class="email-card">
+            <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">AI Email Responder</h1>
+            <p class="text-center text-gray-500 mb-8">Paste an email below and I will draft a reply for you.</p>
+
+            <div class="space-y-6">
+                <!-- Incoming Email Section -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <label for="incoming-email" class="block text-sm font-medium text-gray-700 mb-2">Incoming Email</label>
+                    <textarea id="incoming-email" rows="10"
+                        class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 transition-colors duration-200 p-4"
+                        placeholder="Paste the email you want to reply to here..."></textarea>
+                </div>
+
+                <!-- Action Button -->
+                <div class="flex justify-center">
+                    <button id="generate-btn" class="btn flex items-center justify-center gap-2">
+                        <span id="button-text">Generate Response</span>
+                        <div id="loading-spinner" class="loading-spinner hidden"></div>
+                    </button>
+                </div>
+
+                <!-- AI Response Section -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <label for="ai-response" class="block text-sm font-medium text-gray-700 mb-2">AI-Generated Response</label>
+                    <textarea id="ai-response" rows="10"
+                        class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 transition-colors duration-200 p-4 bg-gray-100"
+                        readonly placeholder="Your AI-generated response will appear here..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const incomingEmailEl = document.getElementById('incoming-email');
+            const generateBtn = document.getElementById('generate-btn');
+            const aiResponseEl = document.getElementById('ai-response');
+            const buttonTextEl = document.getElementById('button-text');
+            const loadingSpinnerEl = document.getElementById('loading-spinner');
+
+            generateBtn.addEventListener('click', async () => {
+                const incomingEmail = incomingEmailEl.value;
+
+                if (!incomingEmail.trim()) {
+                    alert('Please paste an email to generate a response.');
+                    return;
+                }
+
+                // Show loading state
+                buttonTextEl.textContent = 'Generating...';
+                loadingSpinnerEl.classList.remove('hidden');
+                generateBtn.disabled = true;
+                aiResponseEl.value = '';
+
+                try {
+                    const systemPrompt = "You are a professional and helpful email assistant. Your task is to analyze the user's provided email and draft a polite, concise, and appropriate reply. Maintain a professional tone and address the key points from the original email. Only provide the body of the email response. Do not include a subject line, greeting, or sign-off.";
+                    const userQuery = `Draft an email reply for the following email:\n\n---\n${incomingEmail}\n---`;
+
+                    const payload = {
+                        contents: [{
+                            parts: [{ text: userQuery }]
+                        }],
+                        systemInstruction: {
+                            parts: [{ text: systemPrompt }]
+                        },
+                    };
+
+                    const apiKey = "";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                    let response;
+                    let retries = 0;
+                    const maxRetries = 3;
+                    const baseDelay = 1000; // 1 second
+
+                    while (retries < maxRetries) {
+                        try {
+                            response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(payload)
+                            });
+                            if (response.status !== 429) {
+                                break;
+                            }
+                            console.log(`Rate limit hit. Retrying in ${baseDelay * (2 ** retries)}ms...`);
+                            await new Promise(res => setTimeout(res, baseDelay * (2 ** retries)));
+                            retries++;
+                        } catch (error) {
+                            console.error('Fetch failed:', error);
+                            throw error;
+                        }
+                    }
+
+                    if (response.status === 429) {
+                        throw new Error("API rate limit exceeded after multiple retries.");
+                    }
+
+                    const result = await response.json();
+                    const generatedText = result?.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated. Please try again.";
+                    aiResponseEl.value = generatedText;
+
+                } catch (error) {
+                    console.error('Error generating response:', error);
+                    aiResponseEl.value = 'An error occurred while generating the response. Please check the console for details.';
+                } finally {
+                    // Reset button state
+                    buttonTextEl.textContent = 'Generate Response';
+                    loadingSpinnerEl.classList.add('hidden');
+                    generateBtn.disabled = false;
+                }
+            });
+        });
+    </script>
+
+</body>
+
+</html>
